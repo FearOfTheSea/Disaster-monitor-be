@@ -5,6 +5,16 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "aiosqlite",
+    "earthengine-api",
     "fastapi[standard]>=0.128.0",
+    "openai-agents",
+    "pebble",
+    "planetary-computer",
+    "pyproj",
+    "pystac-client",
+    "shapely",
+    "odc-stac",
+    "xarray",
     "uvicorn>=0.40.0",
 ]

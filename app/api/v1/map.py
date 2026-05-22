@@ -1,6 +1,6 @@
 from fastapi import APIRouter, File, UploadFile, Form, HTTPException
 from pydantic import BaseModel
-from app.services.ai_service import process_analysis, process_response
+from app.services.ai_service import process_response
 import logging
 
 logger = logging.getLogger(__name__)
