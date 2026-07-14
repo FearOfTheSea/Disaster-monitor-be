@@ -16,9 +16,10 @@ logger = logging.getLogger(__name__)
 
 
 def _init_gee_in_worker() -> None:
-    # Process workers do not inherit initialized EE context.
-    init_gee()
-
+    try:
+        init_gee()
+    except Exception as e:
+        raise RuntimeError("Không thể kết nối GEE.") from e
 
 def _compute_ndvi_worker(aoi_input: list[float], start_date_i: str, end_date_i: str) -> dict:
     try:
@@ -61,7 +62,8 @@ def _compute_ndvi_worker(aoi_input: list[float], start_date_i: str, end_date_i: 
 
         world_cover = ee.ImageCollection("ESA/WorldCover/v200").first().clip(aoi_geom)
         non_urban_water_mask = world_cover.neq(50).And(world_cover.neq(80))
-        classified_ndvi = class_img.updateMask(ndvi.mask()).updateMask(non_urban_water_mask)
+        # classified_ndvi = class_img.updateMask(ndvi.mask()).updateMask(non_urban_water_mask)
+        classified_ndvi = class_img.updateMask(ndvi.mask())
 
         palette = [conf["color"] for conf in class_config.values()]
         vis_result = build_visualization(
@@ -891,82 +893,76 @@ def _compute_dvdi_worker(
             "detail": str(e)
         }
 
-
-def _compute_activefire_worker(aoi_input: list[float], bbox_raw: str, start_date: str, end_date: str) -> dict:
+def _compute_ndvi_modis_worker(aoi_geo: list[float], start_date: str, end_date: str, bbox_raw: str) -> dict:
     try:
         _init_gee_in_worker()
 
-        aoi = ee.Geometry.Rectangle(aoi_input)
+        aoi = ee.Geometry.Rectangle(aoi_geo)
 
+        target_start = ee.Date(start_date)
+        target_end = ee.Date(end_date)
+
+        # 1. Khởi tạo và lọc bộ sưu tập MODIS
         base_col = (
-            ee.ImageCollection('FIRMS')
-            .select(['T21'])
+            ee.ImageCollection('MODIS/061/MOD13Q1')
+            .select(['NDVI', 'SummaryQA'])
             .filterBounds(aoi)
-            .filterDate(start_date, end_date)
         )
 
-        fires_max_temp = base_col.max().clip(aoi)
-
-        class_config = {
-            1: {"label": "Nhiệt độ 52°C - 67°C", "color": "#ffff00", "range": "325 <= T21 < 340"},
-            2: {"label": "Nhiệt độ 67°C - 87°C", "color": "#ffa500", "range": "340 <= T21 < 360"},
-            3: {"label": "Nhiệt độ trên 87°C", "color": "#ff0000", "range": "T21 >= 360"}
-        }
-
-        class_img = fires_max_temp.expression(
-            "t21 >= 360 ? 3 : t21 >= 340 ? 2 : t21 >= 325 ? 1 : 0",
-            {"t21": fires_max_temp.select('T21')}
-        ).rename("class")
-
-        classified_fires = class_img.updateMask(class_img.gt(0))
-
-        stats = classified_fires.reduceRegion(
-            reducer=ee.Reducer.max(),
-            geometry=aoi,
-            scale=1000,
-            maxPixels=1e9
-        ).getInfo()
-
-        max_fire_class = stats.get('class')
-
-        if max_fire_class is None:
+        target_ndvi = base_col.filterDate(target_start, target_end).map(_mask_modis_ndvi)
+        
+        if target_ndvi.size().getInfo() == 0:
             return {
-                "status": "safe",
-                "analysis_type": "Active_Fire_Detection",
-                "source": "FIRMS",
-                "area": bbox_raw,
-                "time_range": {
-                    "start_date": start_date,
-                    "end_date": end_date
-                },
+                "status": "error",
                 "message": (
-                    "Khu vực hiện tại an toàn. Không phát hiện bức xạ nhiệt bất thường "
-                    f"(>= 52°C) nào từ {start_date} đến {end_date}."
+                    "Không có dữ liệu NDVI cho khu vực này trong khoảng thời gian từ "
+                    f"{start_date} đến {end_date}. Vui lòng mở rộng khoảng thời gian."
                 )
             }
 
+        # 2. Tính giá trị trung bình và Scale về dải chuẩn [-1.0, 1.0]
+        # (Dữ liệu gốc của MODIS được nhân với 10000, nên ta cần nhân lại với 0.0001)
+        final_ndvi = target_ndvi.mean().clip(aoi).rename('NDVI')
+
+        # 3. Cấu hình phân loại theo yêu cầu
+        class_config = {
+            1: {"label": "Rất thấp - Đất trống/Nước", "color": "#0000FF", "range": "<0.0"},
+            2: {"label": "Thấp - Đất trọc", "color": "#8B4513", "range": "0.0-0.1"},
+            3: {"label": "Thực vật thưa thớt", "color": "#FFFF00", "range": "0.1-0.3"},
+            4: {"label": "Thực vật trung bình", "color": "#90EE90", "range": "0.3-0.6"},
+            5: {"label": "Thực vật dày đặc", "color": "#006400", "range": ">0.6"}
+        }
+
+        # 4. Áp dụng ngưỡng phân loại bằng ee.Image.expression
+        class_img = final_ndvi.expression(
+            "idx < 0.0 ? 1 : idx < 0.1 ? 2 : idx < 0.3 ? 3 : idx < 0.6 ? 4 : 5",
+            {"idx": final_ndvi.select('NDVI')}
+        ).rename("class")
+
+        # Cập nhật mask để bỏ qua các vùng không có dữ liệu (mây/lỗi)
+        classified_ndvi = class_img.updateMask(final_ndvi.mask())
+
+        # 5. Khởi tạo công cụ trực quan và thống kê
         palette = [conf["color"] for conf in class_config.values()]
-
-        vis_result = build_visualization(class_img=classified_fires, palette=palette, geometry=aoi, dimensions=800)
-
+        vis_result = build_visualization(class_img=classified_ndvi, palette=palette, geometry=aoi, dimensions=800)
+        
         statistics = compute_area_statistics(
-            class_img=classified_fires,
+            class_img=classified_ndvi,
             labels=class_config,
             geometry=aoi,
-            scale=1000,
+            scale=250, # MODIS độ phân giải 250m
             tileScale=4
         )
 
         return {
-            "status": "danger",
-            "analysis_type": "Active_Fire_Detection",
-            "source": "FIRMS",
+            "status": "success",
+            "analysis_type": "NDVI",
+            "source": "MODIS",
             "area": bbox_raw,
             "time_range": {
                 "start_date": start_date,
                 "end_date": end_date
             },
-            "message": "CẢNH BÁO: Phát hiện bức xạ nhiệt bất thường tại khu vực yêu cầu. Vui lòng xem bản đồ phân lớp chi tiết.",
             "analysis": statistics,
             "image_url": vis_result['image_url'],
             "tile_url": vis_result['tile_url'],
@@ -979,10 +975,16 @@ def _compute_activefire_worker(aoi_input: list[float], bbox_raw: str, start_date
             }
         }
     except Exception as e:
-        logging.getLogger("app").error(f"Lỗi hệ thống tính FIRMS Active Fire: {str(e)}", exc_info=True)
+        logging.getLogger("app").error(f"Lỗi hệ thống tính NDVI: {str(e)}", exc_info=True)
+        if "Không thể kết nối GEE" in str(e):
+            return {
+                "status": "error",
+                "message": "Không thể kết nối GEE.",
+                "detail": str(e)
+            }
         return {
             "status": "error",
-            "message": "Không thể xử lý dữ liệu nhiệt cho khu vực này.",
+            "message": "Không thể tính NDVI cho khu vực này.",
             "detail": str(e)
         }
 
@@ -1428,11 +1430,19 @@ async def compute_DVDI_tool (bbox: str, start_date_1: str, end_date_1: str, star
             "detail": str(e)
         }, ensure_ascii=False)
 
-
 @function_tool(timeout=200.0)
-async def compute_ActiveFire_FIRMS(bbox: str, start_date: str, end_date: str) -> str:
+async def compute_NDVI_MODIS_tool(bbox: str, start_date: str, end_date: str) -> str:
     """
-    Phát hiện điểm cháy dựa trên dữ liệu nhiệt (băng tần T21) từ FIRMS.
+    Tính toán chỉ số thảm thực vật NDVI từ vệ tinh MODIS cho một khu vực và khoảng thời gian nhất định.
+    
+    Args:
+    - bbox: Danh sách tọa độ [min_lon, min_lat, max_lon, max_lat] dạng string.
+    - start_date: Ngày bắt đầu định dạng 'YYYY-MM-DD'
+    - end_date: Ngày kết thúc định dạng 'YYYY-MM-DD'
+    
+    Returns: 
+    Chuỗi JSON chứa kết quả phân tích NDVI, bao gồm cấu hình phân loại trạng thái thảm thực vật, 
+    thống kê về diện tích (ha) và tỷ lệ phần trăm diện tích cho từng lớp, cùng với các URL hiển thị bản đồ.
     """
     try:
         if isinstance(bbox, str):
@@ -1449,15 +1459,15 @@ async def compute_ActiveFire_FIRMS(bbox: str, start_date: str, end_date: str) ->
 
         with ProcessPool(max_workers=1) as pool:
             future = pool.schedule(
-                _compute_activefire_worker,
-                args=(aoi_geo, bbox, start_date, end_date),
+                _compute_ndvi_modis_worker,
+                args=(aoi_geo, start_date, end_date, bbox),
                 timeout=200.0
             )
             result_dict = await asyncio.wrap_future(future)
             return json.dumps(result_dict, ensure_ascii=False)
 
     except PebbleTimeoutError:
-        logger.error("Hệ thống xử lý FIRMS Active Fire quá 200s, tiến trình đã bị hệ thống tiêu diệt.")
+        logger.error("Hệ thống xử lý NDVI quá 200s, tiến trình đã bị hệ thống tiêu diệt.")
         return json.dumps({
             "status": "error",
             "message": (
@@ -1466,9 +1476,9 @@ async def compute_ActiveFire_FIRMS(bbox: str, start_date: str, end_date: str) ->
             )
         }, ensure_ascii=False)
     except Exception as e:
-        logging.getLogger("app").error(f"Lỗi hệ thống tính FIRMS Active Fire: {str(e)}", exc_info=True)
+        logging.getLogger("app").error(f"Lỗi hệ thống tính NDVI: {str(e)}", exc_info=True)
         return json.dumps({
             "status": "error",
-            "message": "Không thể xử lý dữ liệu nhiệt cho khu vực này.",
+            "message": "Không thể xử lý NDVI cho khu vực này.",
             "detail": str(e)
         }, ensure_ascii=False)

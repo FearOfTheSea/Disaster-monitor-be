@@ -34,9 +34,6 @@ class RainSchema(BaseModel):
         alias="1h"
     )
 
-    model_config = {
-        "populate_by_name": True
-    }
 
 
 class SnowSchema(BaseModel):
@@ -45,9 +42,6 @@ class SnowSchema(BaseModel):
         alias="1h"
     )
 
-    model_config = {
-        "populate_by_name": True
-    }
 
 
 class ResponseCurrentWeatherSchema(BaseModel):

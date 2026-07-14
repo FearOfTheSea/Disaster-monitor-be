@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 
 
 def _init_gee_in_worker() -> None:
-    # Process workers do not inherit initialized EE context.
     try:
         init_gee()
     except Exception as e:
@@ -35,7 +34,7 @@ def _bitwise_extract(input_img, from_bit, to_bit):
     Trích xuất các bit chỉ định.
     """
     mask_size = ee.Number(1).add(to_bit).subtract(from_bit) # 2
-    mask = ee.Number(1).leftShift(mask_size).subtract(1) # 00000011
+    mask = ee.Number(1).leftShift(mask_size).subtract(1) 
     return input_img.rightShift(from_bit).bitwiseAnd(mask)
 
 def _process_lst(image):

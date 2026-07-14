@@ -11,12 +11,11 @@ def search_target_image(bbox: List[float], target_date: str) -> Optional[List[Di
     Trả về danh sách các Item thỏa mãn điều kiện."""
     try:
         catalog = get_planetary_client()
-
         search = catalog.search(
             collections=["sentinel-2-l2a"],
             bbox=bbox,
             datetime=f"{target_date}T00:00:00Z/{target_date}T23:59:59Z",
-            query={"eo:cloud_cover": {"lt": 65}},
+            query={"eo:cloud_cover": {"lt": 50}},
             limit=20,
         )
 

@@ -1,5 +1,6 @@
+import asyncio
+
 from agents import Agent, function_tool, Runner
-from app.agents.tools.generate_image_tool import get_satellite_image_base64
 from app.core.llm_clients import get_gemini_client, get_gemini_model
 from app.services.satellite.stac_search_service import search_target_image
 import json
@@ -34,7 +35,7 @@ gemini_model = get_gemini_model("gemini-2.5-flash")
 image_analyst_agent = Agent(name="Satellite Image Analyzer", model=gemini_model,
                                                              instructions=instruction)
 
-@function_tool(timeout=180.0)
+@function_tool(timeout=200.0)
 async def analyze_image(bbox: str, target_date: str, question: str) -> str:
     """
     Công cụ này dùng để phân tích ảnh vệ tinh của một khu vực.
@@ -49,7 +50,15 @@ async def analyze_image(bbox: str, target_date: str, question: str) -> str:
 
     try:
         bbox_coords = [float(x) for x in bbox.split(",")]
-        items = search_target_image(bbox=bbox_coords, target_date=target_date)
+        if len(bbox_coords) != 4:
+            logger.error("Định dạng bbox không hợp lệ.")
+            return json.dumps({"status": "error", "message": "Định dạng bbox không hợp lệ."})
+        try:
+            items = await asyncio.to_thread(search_target_image, bbox=bbox_coords, target_date=target_date)
+        except Exception as e:
+            logger.error(f"Lỗi khi tìm kiếm ảnh vệ tinh: {str(e)}")
+            return json.dumps({"status": "error", "message": "Đã xảy ra lỗi khi tìm kiếm ảnh vệ tinh."}, ensure_ascii=False)
+
         if not items:
             logger.warning(f"Không tìm thấy ảnh nào cho bbox {bbox} vào ngày {target_date}.")
             return json.dumps({"status": "error",
@@ -67,24 +76,20 @@ async def analyze_image(bbox: str, target_date: str, question: str) -> str:
         )
 
         import base64
-
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            try:
+        
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.get(image_url)
                 response.raise_for_status()
                 image_data = response.content
                 image_base64 = base64.b64encode(image_data).decode("utf-8")
-            except httpx.HTTPStatusError as e:
-                logger.error(f"Lỗi HTTP khi tải ảnh vệ tinh: {e.response.status_code} - {e.response.text}")
-                return json.dumps({"status": "error",
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Lỗi HTTP khi tải ảnh vệ tinh: {e.response.status_code} - {e.response.text}")
+            return json.dumps({"status": "error",
                                 "message": f"Lỗi khi tải ảnh vệ tinh: Mã lỗi {e.response.status_code}."}, ensure_ascii=False)
-            except httpx.RequestError as e:
-                logger.error(f"Lỗi mạng khi tải ảnh vệ tinh: {str(e)}")
-                return json.dumps({"status": "error",
-                                "message": "Kết nối mạng bị gián đoạn khi tải ảnh vệ tinh. Vui lòng thử lại sau."}, ensure_ascii=False)
-            except Exception as e:
-                logger.error(f"Lỗi không xác định khi tải ảnh vệ tinh: {str(e)}")
-                return json.dumps({"status": "error",
+        except Exception as e:
+            logger.error(f"Lỗi không xác định khi tải ảnh vệ tinh: {str(e)}")
+            return json.dumps({"status": "error",
                                 "message": "Đã xảy ra lỗi không xác định khi tải ảnh vệ tinh."}, ensure_ascii=False)
         
 
@@ -101,23 +106,31 @@ async def analyze_image(bbox: str, target_date: str, question: str) -> str:
                 ]
             }
         ]
+        try: 
+            response = await gemini_client.chat.completions.create(
+                model="gemini-2.5-flash",
+                messages=messages,
+                temperature=0.2
+            )
+            
+            result = {
+                "status": "success",
+                "analysis_type": "satellite_image_analysis",
+                "analysis": response.choices[0].message.content,
+                "image_url": image_url,
+            }
+            return json.dumps(result, ensure_ascii=False)
 
-        response = await gemini_client.chat.completions.create(
-                    model="gemini-2.5-flash",
-                    messages=messages,
-                )
-        result = {
-            "status": "success",
-            "analysis_type": "satellite_image_analysis",
-            "analysis": response.choices[0].message.content,
-            "image_url": image_url,
-        }
-        return json.dumps(result, ensure_ascii=False)
-
-    except ValueError:
+        except Exception as e:
+            logger.exception("Lỗi Crash khi gọi API Gemini:")
+            return json.dumps({
+                "status": "error",
+                "message": f"AI phân tích ảnh đang gặp sự cố: {str(e)}"
+            }, ensure_ascii=False)
+    except Exception as e:
         logger.exception("Analyze image failed")
 
         return json.dumps({
             "status": "error",
-            "message": str(e)
+            "message": f"Đã xảy ra lỗi nội bộ trong công cụ phân tích ảnh: {str(e)}"
         }, ensure_ascii=False)

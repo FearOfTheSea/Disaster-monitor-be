@@ -9,7 +9,6 @@ from datetime import datetime
 from shapely.geometry import box
 from pystac_client import Client
 from odc import stac as odc_stac
-import ee
 from agents import function_tool
 from concurrent.futures import TimeoutError as PebbleTimeoutError
 from pebble import ProcessPool
@@ -57,7 +56,7 @@ def _fetch_gfm_items(bbox: List[float], start_date: str, end_date: str) -> pysta
         logger.error(f"Lỗi khi truy vấn GFM data: {str(e)}")
         raise RuntimeError("Không thể kết nối dịch vụ dữ liệu ngập lụt.") from e
 
-def _gfm_raster_worker(items, bbox, wkt_string, resolution, bands) -> Dict[str, Any]:
+def _gfm_raster_worker(items: pystac.ItemCollection, bbox: List[float], wkt_string: str, resolution: float, bands: List[str]) -> Dict[str, Any]:
     """
     Xử lí dữ liệu raster GFM
     """
@@ -93,7 +92,8 @@ def _gfm_raster_worker(items, bbox, wkt_string, resolution, bands) -> Dict[str, 
 
     # Tính diện tích ngập tối đa
     filtered_data = data.where((data != 255) & (data != 0))
-    binary_result = xr.where(filtered_data.sum(dim="time") > 0, 1, 0).astype("uint8")
+    result = filtered_data.sum(dim="time")
+    binary_result = xr.where(result > 0, 1, 0).astype("uint8")
     pixel_area_m2 = resolution * resolution
     total_flood_pixel = (binary_result == 1).sum().values
     total_flood_area_km2 = round(total_flood_pixel * pixel_area_m2 / 1_000_000, 2)
@@ -110,7 +110,7 @@ def _gfm_raster_worker(items, bbox, wkt_string, resolution, bands) -> Dict[str, 
         }
     }
 
-@function_tool(timeout=180.0)
+@function_tool(timeout=200.0)
 async def get_gfm_flood_analysis(bbox: str, start_date: str, end_date: str) -> str:
     """
     Công cụ này dùng để phân tích dữ liệu ngập lụt từ GFM trong một khu vực và khoảng thời gian nhất định.
@@ -154,7 +154,6 @@ async def get_gfm_flood_analysis(bbox: str, start_date: str, end_date: str) -> s
             "message": f"Không tìm thấy dữ liệu gfm trong khoảng thời gian {start_date} đến {end_date}.",
         })
 
-    # Truyền chuỗi WKT vào Process để tránh lỗi
     wkt_string = items[0].properties["proj:wkt2"]
     resolution = items[0].properties['gsd']
     bands = ["ensemble_flood_extent"]
@@ -183,76 +182,3 @@ async def get_gfm_flood_analysis(bbox: str, start_date: str, end_date: str) -> s
             "message": "Không thể tính toán dữ liệu do lỗi nội bộ.",
             "detail": str(e)
         })
-
-
-# def _get_clean_sentinel(aoi: ee.Geometry, start: str, end: str, cloud_pct: float=50) -> Optional[ee.Image]:
-#     """
-#     Tải và lọc mây ảnh Sentinel-2 bằng s2cloudless kết hợp bóng mây.
-#     """
-#     CLD_PRB_THRESH = 50     # Điểm xác suất > 50% thì coi là mây
-#     NIR_DRK_THRESH = 0.15   # Ngưỡng vùng tối để tìm bóng mây: nir < 0.15 -> bóng mây
-#     CLD_PRJ_DIST = 1        # Khoảng cách tối đa chiếu bóng mây
-#     BUFFER = 50             # Mở rộng viền mây thêm 50m
-
-#     # Tải và lọc bộ dữ liệu gốc
-#     s2_sr_col = (ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
-#                   .filterBounds(aoi)
-#                   .filterDate(start, end)
-#                   .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', cloud_pct)))
-
-#     # Tải bộ dữ liệu xác suất mây
-#     s2_cloudless_col = (ee.ImageCollection('COPERNICUS/S2_CLOUD_PROBABILITY')
-#                         .filterBounds(aoi)
-#                         .filterDate(start, end))
-
-#     # Ghép cả hai bộ dữ liệu
-#     joined_col = ee.ImageCollection(ee.Join.saveFirst('s2cloudless').apply(**{
-#         'primary': s2_sr_col,
-#         'secondary': s2_cloudless_col,
-#         'condition': ee.Filter.equals(**{
-#             'leftField': 'system:index',
-#             'rightField': 'system:index'
-#         })
-#     }))
-
-#     # Kiểm tra xem có ảnh không
-#     if joined_col.limit(1).size().getInfo() == 0:
-#         return None
-
-#     # Hàm lọc mây và bóng mây
-#     def process_cloud_shadow(img):
-#         # Nhận diện mây
-#         cld_prb = ee.Image(img.get('s2cloudless')).select('probability')
-#         is_cloud = cld_prb.gt(CLD_PRB_THRESH).rename('clouds')
-#         img_cloud = img.addBands(ee.Image([cld_prb, is_cloud]))
-
-#         # Nhận diện Bóng mây
-#         not_water = img_cloud.select('SCL').neq(6)
-#         SR_BAND_SCALE = 1e4
-#         dark_pixels = img_cloud.select('B8').lt(NIR_DRK_THRESH * SR_BAND_SCALE).multiply(not_water).rename('dark_pixels')
-
-#         shadow_azimuth = ee.Number(90).subtract(ee.Number(img_cloud.get('MEAN_SOLAR_AZIMUTH_ANGLE')))
-#         cld_proj = (img_cloud.select('clouds').directionalDistanceTransform(shadow_azimuth, CLD_PRJ_DIST * 10)
-#             .reproject(**{'crs': img_cloud.select(0).projection(), 'scale': 100})
-#             .select('distance')
-#             .mask()
-#             .rename('cloud_transform'))
-
-#         shadows = cld_proj.multiply(dark_pixels).rename('shadows')
-#         img_cloud_shadow = img_cloud.addBands(ee.Image([dark_pixels, cld_proj, shadows]))
-
-#         # Gộp Mây và Bóng mây
-#         is_cld_shdw = img_cloud_shadow.select('clouds').add(img_cloud_shadow.select('shadows')).gt(0)
-#         is_cld_shdw = (is_cld_shdw.focalMin(2).focalMax(BUFFER * 2 / 20)
-#             .reproject(**{'crs': img.select([0]).projection(), 'scale': 20})
-#             .rename('cloudmask'))
-
-#         not_cld_shdw = is_cld_shdw.Not()
-#         return img.updateMask(not_cld_shdw).divide(10000)
-
-#     img_final = (joined_col.map(process_cloud_shadow)
-#                  .median()
-#                  .select(['B4', 'B8', 'B11', 'B12'], ['red', 'nir', 'swir1', 'swir2'])
-#                  .clip(aoi))
-
-#     return img_final

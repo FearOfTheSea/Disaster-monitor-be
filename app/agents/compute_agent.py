@@ -4,7 +4,7 @@ from app.core.llm_clients import get_deepseek_model
 from app.agents.tools.analyze_flood_tool import get_gfm_flood_analysis
 from app.agents.tools.simple_index_tool import compute_NBR_tool, compute_NDBI_tool, compute_NDVI_tool,  compute_DVDI_tool
 from app.agents.tools.drought_index_tool import compute_VHI_MODIS_tool, compute_TCI_MODIS_tool, compute_VCI_MODIS_tool
-from app.agents.tools.simple_index_tool import compute_NDVI_tool, compute_NDBI_tool, compute_NBR_tool, compute_DVDI_tool, compute_dNBR_tool, compute_MNDWI_tool, compute_NDWI_tool
+from app.agents.tools.simple_index_tool import compute_NDVI_tool, compute_NDBI_tool, compute_NBR_tool, compute_DVDI_tool, compute_dNBR_tool, compute_MNDWI_tool, compute_NDWI_tool, compute_NDVI_MODIS_tool
 
 gemini_model = get_gemini_model("gemini-2.5-flash-lite")
 deepseek_model = get_deepseek_model("deepseek-chat")
@@ -20,8 +20,9 @@ tool8 = compute_VCI_MODIS_tool
 tool9 = compute_dNBR_tool
 tool10 = compute_MNDWI_tool
 tool11 = compute_NDWI_tool
+tool12 = compute_NDVI_MODIS_tool
 
-list_tools = [tool1, tool2, tool3, tool4, tool5, tool6, tool7, tool8, tool9, tool10, tool11]
+list_tools = [tool1, tool2, tool3, tool4, tool5, tool6, tool7, tool8, tool9, tool10, tool11, tool12]
 instruction = """
 Bạn là Agent Tính toán (Compute Agent), một trợ lý chuyên thực hiện các tác vụ tính toán liên quan đến dữ liệu không gian địa lý và ảnh vệ tinh.
 Nhiệm vụ của bạn là tiếp nhận yêu cầu từ Agent Management, xác định tool phù hợp để giải quyết yêu cầu đó, và trả về kết quả một cách chính xác và chi tiết.
@@ -32,7 +33,8 @@ QUY TẮC HOẠT ĐỘNG:
         + Lưu ý những ngày không phải ngày ngập lụt có thể ngày đó không có dữ liệu hoặc không ngập lụt.
     - Nhóm tool tính toán chỉ số phổ:
     (các tool sau đây đều trả về kết quả tính toán của chỉ số tương ứng gồm kết quả phân tích (diện tích, phần trăm từng lớp), tile_url, image_url và các thông tin liên quan.
-        + Tool compute_NDVI_tool: tính toán chỉ số phổ NDVI.
+        + Tool compute_NDVI_tool: tính toán chỉ số phổ NDVI dựa trên vệ tinh sentinel 2 hoặc landsat 8 và 9. Mặc định gọi tool này nếu tính NDVI. Chỉ khi người dùng yêu cầu tính NDVI bằng MODIS mới gọi tool tính NDVI bằng MODIS.
+        + Tool compute_NDVI_MODIS_tool: tính toán chỉ số phổ NDVI dựa trên vệ tinh MODIS.
         + Tool compute_DVDI_tool: tính toán chỉ số DVDI, thường dùng để phân tích biến thiệt hại thảm thực vật sau thiên tai.
         + Tool compute_NDBI_tool: tính toán chỉ số phổ NDBI.
         + Tool compute_NBR_tool: tính toán chỉ số phổ NBR.

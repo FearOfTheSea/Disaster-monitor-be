@@ -2,10 +2,12 @@ import base64
 import json
 import logging
 import re
+import httpx
 from agents import RunConfig, Runner, SessionSettings
 from agents.extensions.memory import AsyncSQLiteSession
+from agents.extensions.memory import SQLAlchemySession
 from app.agents.management_agent import management_agent
-
+from app.core.database import engine
 logger = logging.getLogger(__name__)
 DB_PATH = "session/conversations.db"
 
@@ -14,7 +16,17 @@ async def process_response(input: str, session_id: str):
         session = AsyncSQLiteSession(session_id, DB_PATH)
         logger.info(f"Đang xử lý input: {input} cho session_id: {session_id}")
 
-        result = await Runner.run(management_agent, input=input, session=session, max_turns=5, run_config=RunConfig(session_settings=SessionSettings(limit=50)))
+        try:
+            result = await Runner.run(
+                management_agent,
+                input=input,
+                session=session,
+                max_turns=5,
+                run_config=RunConfig(session_settings=SessionSettings(limit=50))
+            )
+        except (httpx.RequestError, httpx.HTTPStatusError, TimeoutError) as net_err:
+            logger.error("Loi ket noi khi goi Agent.", exc_info=True)
+            raise RuntimeError("Khong the ket noi den dich vu AI. Vui long thu lai.") from net_err
         logger.info(f"Agent result: {result}")
         
         raw_output = result.final_output

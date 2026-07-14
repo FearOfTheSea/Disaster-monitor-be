@@ -1,13 +1,11 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 import logging
 from logging.config import dictConfig
 from app.api.apis import api_router
 from app.core.config import settings
 from agents import enable_verbose_stdout_logging
-
 
 def configure_logging() -> None:
     dictConfig(
@@ -45,6 +43,7 @@ logging.getLogger(__name__).info("Logging configured")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+
     yield
 
     logging.getLogger("app").info("Dọn dẹp tài nguyên hệ thống...")
@@ -53,8 +52,6 @@ app = FastAPI(
     title=settings.PROJECT_NAME,
     lifespan=lifespan
 )
-
-app.mount(settings.STATIC_URL, StaticFiles(directory=settings.STATIC_DIR), name="static")
 
 app.add_middleware(
     CORSMiddleware,
