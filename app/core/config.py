@@ -10,7 +10,8 @@ class Settings(BaseSettings):
     STATIC_DIR: str = "./static"
     STATIC_URL: str = "/static"
     GEE_SERVICE_ACCOUNT: str
-    GEE_KEY_PATH: str
+    GEE_KEY_PATH: str = ""
+    GEE_KEY_JSON: str = ""
     PLANETARY_COMPUTER_STAC_URL: str
     PLANETARY_MOSAIC_URL: str
     OPENWEATHER_API_KEY: str

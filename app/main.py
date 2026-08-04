@@ -64,6 +64,10 @@ app.add_middleware(
 app.include_router(api_router, prefix=settings.API_V1_STR)
 enable_verbose_stdout_logging()
 
+@app.get("/health", tags=["Health"])
+async def health() -> dict[str, str]:
+    return {"status": "ok"}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
