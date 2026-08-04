@@ -1,11 +1,9 @@
 from agents import Agent
-from app.core.llm_clients import get_gemini_model
-from app.core.llm_clients import get_deepseek_model
+from app.core.llm_clients import get_agent_model
 from app.agents.tools.analyze_two_image_rgb import analyze_image_comparison
 from app.agents.tools.image_analyst_tool import analyze_image
 
-gemini_model = get_gemini_model("gemini-2.5-flash-lite")
-deepseek_model = get_deepseek_model("deepseek-chat")
+agent_model = get_agent_model()
 
 # tool1 = search_two_satellite_rgb_image_and_get_tilejson
 tool2 = analyze_image_comparison
@@ -27,5 +25,5 @@ QUY TẮC HOẠT ĐỘNG:
 6. Sau khi gọi tool và nhận được kết quả, bạn phải trả về kết quả đó về dạng json một cách chính xác, không được thêm bất kỳ văn bản giải thích nào khác ngoài kết quả trả về từ tool.
 7. Luôn đảm bảo rằng kết quả trả về là chính xác và dựa trên dữ liệu thực tế từ tool, không được tự ý suy diễn hoặc bịa đặt thông tin.
 """
-vision_agent = Agent(name="Vision Agent", model=deepseek_model, instructions=instruction, tools = [tool2, tool3])
+vision_agent = Agent(name="Vision Agent", model=agent_model, instructions=instruction, tools = [tool2, tool3])
 

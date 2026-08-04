@@ -1,15 +1,16 @@
-import base64
 import json
 import logging
 import re
+from pathlib import Path
 import httpx
 from agents import RunConfig, Runner, SessionSettings
 from agents.extensions.memory import AsyncSQLiteSession
-from agents.extensions.memory import SQLAlchemySession
 from app.agents.management_agent import management_agent
-from app.core.database import engine
+from app.core.config import settings
 logger = logging.getLogger(__name__)
-DB_PATH = "session/conversations.db"
+SESSION_DIR = Path(settings.SESSION_DIR)
+SESSION_DIR.mkdir(parents=True, exist_ok=True)
+DB_PATH = str(SESSION_DIR / "conversations.db")
 
 async def process_response(input: str, session_id: str):
     try:

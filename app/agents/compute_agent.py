@@ -1,13 +1,11 @@
 from agents import Agent
-from app.core.llm_clients import get_gemini_model
-from app.core.llm_clients import get_deepseek_model
+from app.core.llm_clients import get_agent_model
 from app.agents.tools.analyze_flood_tool import get_gfm_flood_analysis
 from app.agents.tools.simple_index_tool import compute_NBR_tool, compute_NDBI_tool, compute_NDVI_tool,  compute_DVDI_tool
 from app.agents.tools.drought_index_tool import compute_VHI_MODIS_tool, compute_TCI_MODIS_tool, compute_VCI_MODIS_tool
 from app.agents.tools.simple_index_tool import compute_NDVI_tool, compute_NDBI_tool, compute_NBR_tool, compute_DVDI_tool, compute_dNBR_tool, compute_MNDWI_tool, compute_NDWI_tool, compute_NDVI_MODIS_tool
 
-gemini_model = get_gemini_model("gemini-2.5-flash-lite")
-deepseek_model = get_deepseek_model("deepseek-chat")
+agent_model = get_agent_model()
 
 tool1 = get_gfm_flood_analysis
 tool2 = compute_NDVI_tool
@@ -48,6 +46,6 @@ QUY TẮC HOẠT ĐỘNG:
 6. Luôn đảm bảo rằng kết quả trả về là chính xác và dựa trên dữ liệu thực tế từ tool, không được tự ý suy diễn hoặc bịa đặt thông tin.
 7. Lưu ý, nếu tool trả về kết quả thời gian thực hiện tool bị timeout thì bạn phải trả lại nguyên văn kết quả đó cho Agent Management.
 """
-compute_agent = Agent(name="Compute Agent", model=deepseek_model, instructions=instruction, tools = list_tools)
+compute_agent = Agent(name="Compute Agent", model=agent_model, instructions=instruction, tools = list_tools)
 
 

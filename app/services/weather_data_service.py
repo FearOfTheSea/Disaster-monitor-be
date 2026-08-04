@@ -22,6 +22,11 @@ OPENWEATHER_CURRENT_URL = (
 
 async def get_current_weather(lat: float, lon: float) -> ResponseCurrentWeatherSchema:
 
+    if not settings.OPENWEATHER_API_KEY:
+        raise RuntimeError(
+            "OpenWeather is not configured. Set OPENWEATHER_API_KEY to enable weather data."
+        )
+
     params = {
         "lat": lat,
         "lon": lon,

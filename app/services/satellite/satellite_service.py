@@ -30,6 +30,13 @@ SATELLITE_CONFIG = {
 }
 
 async def generate_satellite_mosaic(satellite_type: str, date: str, bbox: List[float]) -> Dict[str, Any]:
+    """Create a satellite mosaic from a Planetary Computer search."""
+    if not settings.PLANETARY_MOSAIC_URL:
+        raise RuntimeError(
+            "Planetary Computer Mosaic is not configured. Set PLANETARY_MOSAIC_URL "
+            "to enable satellite mosaics."
+        )
+
     """
     Tìm kiếm STAC và đăng ký Mosaic bằng search.get_parameters()
     """

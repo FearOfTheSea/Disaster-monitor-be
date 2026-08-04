@@ -1,7 +1,7 @@
 import asyncio
 
-from agents import Agent, function_tool, Runner
-from app.core.llm_clients import get_gemini_client, get_gemini_model
+from agents import function_tool
+from app.core.llm_clients import get_gemini_client
 from app.services.satellite.stac_search_service import search_target_image
 import json
 import logging
@@ -28,12 +28,6 @@ Trả về kết quả theo định dạng cấu trúc sau:
 
 logger = logging.getLogger(__name__)
 
-
-gemini_client = get_gemini_client()
-gemini_model = get_gemini_model("gemini-2.5-flash")
-
-image_analyst_agent = Agent(name="Satellite Image Analyzer", model=gemini_model,
-                                                             instructions=instruction)
 
 @function_tool(timeout=200.0)
 async def analyze_image(bbox: str, target_date: str, question: str) -> str:
@@ -107,6 +101,7 @@ async def analyze_image(bbox: str, target_date: str, question: str) -> str:
             }
         ]
         try: 
+            gemini_client = get_gemini_client()
             response = await gemini_client.chat.completions.create(
                 model="gemini-2.5-flash",
                 messages=messages,
