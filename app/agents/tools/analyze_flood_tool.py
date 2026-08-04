@@ -1,11 +1,15 @@
 import asyncio
 import json
-from typing import Any, Dict, List
 import logging
+from typing import Any, Dict, List
+import httpx
+import numpy as np
 import pystac
 import pyproj
 import xarray as xr
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
+from rasterio.io import MemoryFile
 from shapely.geometry import box
 from pystac_client import Client
 from odc import stac as odc_stac
@@ -14,6 +18,7 @@ from concurrent.futures import TimeoutError as PebbleTimeoutError
 from pebble import ProcessPool
 
 logger = logging.getLogger(__name__)
+GFM_WMS_URL = "https://geoserver.gfm.eodc.eu/geoserver/gfm/wms"
 
 def _fetch_gfm_items(bbox: List[float], start_date: str, end_date: str) -> pystac.ItemCollection | None:
     """
@@ -29,7 +34,8 @@ def _fetch_gfm_items(bbox: List[float], start_date: str, end_date: str) -> pysta
     """
     api_url = "https://stac.eodc.eu/api/v1"
     collection_id = "GFM"
-    max_items = 1000
+    area_degrees = abs((bbox[2] - bbox[0]) * (bbox[3] - bbox[1]))
+    max_items = 300 if area_degrees > 20 else 1000
 
     try:
         aoi = box(*bbox)
@@ -42,7 +48,8 @@ def _fetch_gfm_items(bbox: List[float], start_date: str, end_date: str) -> pysta
             max_items=max_items,
             collections=collection_id,
             intersects=aoi,
-            datetime=time_range
+            datetime=time_range,
+            sortby=[{"field": "datetime", "direction": "desc"}],
         )
 
         items = search.item_collection()
@@ -110,6 +117,118 @@ def _gfm_raster_worker(items: pystac.ItemCollection, bbox: List[float], wkt_stri
         }
     }
 
+def _wms_dimensions(bbox: List[float]) -> tuple[int, int]:
+    longitude_span = max(bbox[2] - bbox[0], 0.01)
+    latitude_span = max(bbox[3] - bbox[1], 0.01)
+    width = 800
+    height = max(256, min(800, round(width * latitude_span / longitude_span)))
+    return width, height
+
+
+def _fetch_wms_observation(
+    observation_date: str,
+    bbox: List[float],
+    width: int,
+    height: int,
+) -> tuple[str, np.ndarray, float]:
+    wms_bbox = f"{bbox[1]},{bbox[0]},{bbox[3]},{bbox[2]}"
+    params = {
+        "service": "WMS",
+        "version": "1.3.0",
+        "request": "GetMap",
+        "layers": "gfm:observed_flood_extent",
+        "styles": "",
+        "bbox": wms_bbox,
+        "crs": "EPSG:4326",
+        "width": str(width),
+        "height": str(height),
+        "format": "image/geotiff",
+        "transparent": "true",
+        "time": observation_date,
+    }
+    response = httpx.get(GFM_WMS_URL, params=params, timeout=60.0)
+    response.raise_for_status()
+    if "geotiff" not in response.headers.get("content-type", "").lower():
+        raise RuntimeError("GFM WMS returned a non-raster response.")
+
+    with MemoryFile(response.content) as memory_file:
+        with memory_file.open() as dataset:
+            values = dataset.read(1, masked=True)
+            nodata_mask = np.ma.getmaskarray(values)
+            flood_mask = (~nodata_mask) & (values.data == 1)
+            transform = dataset.transform
+            center_latitude = (bbox[1] + bbox[3]) / 2
+            geod = pyproj.Geod(ellps="WGS84")
+            _, _, pixel_width_m = geod.inv(
+                bbox[0], center_latitude, bbox[0] + abs(transform.a), center_latitude
+            )
+            _, _, pixel_height_m = geod.inv(
+                bbox[0], center_latitude, bbox[0], center_latitude + abs(transform.e)
+            )
+            pixel_area_km2 = abs(pixel_width_m * pixel_height_m) / 1_000_000
+            return observation_date, flood_mask, pixel_area_km2
+
+
+def _gfm_wms_worker(items: pystac.ItemCollection, bbox: List[float]) -> Dict[str, Any]:
+    """Read GFM flood pixels through the public WMS when STAC COG links fail."""
+    observation_dates = sorted(
+        {item.datetime.date().isoformat() for item in items if item.datetime is not None}
+    )
+    if not observation_dates:
+        raise RuntimeError("GFM STAC items did not contain observation dates.")
+
+    width, height = _wms_dimensions(bbox)
+    union_flood_mask: np.ndarray | None = None
+    flooded_days: list[str] = []
+    pixel_area_km2: float | None = None
+
+    errors: list[str] = []
+    successful_dates: list[str] = []
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = [
+            executor.submit(_fetch_wms_observation, observation_date, bbox, width, height)
+            for observation_date in observation_dates
+        ]
+        for future in futures:
+            try:
+                observation_date, flood_mask, observation_pixel_area_km2 = future.result()
+            except Exception as exc:
+                errors.append(str(exc))
+                continue
+
+            successful_dates.append(observation_date)
+            if union_flood_mask is None:
+                union_flood_mask = np.zeros_like(flood_mask, dtype=bool)
+                pixel_area_km2 = observation_pixel_area_km2
+            union_flood_mask |= flood_mask
+            if flood_mask.any():
+                flooded_days.append(observation_date)
+
+    if union_flood_mask is None:
+        detail = errors[0] if errors else "unknown WMS error"
+        raise RuntimeError(f"GFM WMS returned no raster observations: {detail}")
+
+    result: Dict[str, Any] = {
+        "status": "success",
+        "analysis_type": "GFM Flood Analysis",
+        "source": "Copernicus EMS GFM via WMS",
+        "area_is_estimate": True,
+        "observed_dates": successful_dates,
+        "analysis": {
+            "total_flooded_days": len(flooded_days),
+            "flooded_days": flooded_days,
+            "total_max_flood_area_km2": round(
+                int(union_flood_mask.sum()) * (pixel_area_km2 or 0), 2
+            ),
+        },
+    }
+    if not flooded_days:
+        result["message"] = "GFM observations were available, but no flood pixels were detected."
+    if errors:
+        result["skipped_dates"] = errors
+    return result
+
+
 @function_tool(timeout=200.0)
 async def get_gfm_flood_analysis(bbox: str, start_date: str, end_date: str) -> str:
     """
@@ -157,6 +276,15 @@ async def get_gfm_flood_analysis(bbox: str, start_date: str, end_date: str) -> s
     wkt_string = items[0].properties["proj:wkt2"]
     resolution = items[0].properties['gsd']
     bands = ["ensemble_flood_extent"]
+
+    try:
+        result_dict = await asyncio.wait_for(
+            asyncio.to_thread(_gfm_wms_worker, items, bbox),
+            timeout=180.0,
+        )
+        return json.dumps(result_dict)
+    except Exception as wms_exc:
+        logger.warning("GFM WMS analysis failed; trying STAC raster assets: %s", wms_exc)
 
     try:
         with ProcessPool(max_workers=1) as pool:

@@ -235,6 +235,16 @@ instruction_v4 = instruction_v4 + f"""
 - Current date: {date.today().isoformat()}.
 - Ignore older date references in this prompt. Interpret "today", "recent", and "current" relative to this runtime date.
 - Always prefer an explicit date supplied by the user.
+
+[FINAL RESPONSE SAFETY CONTRACT]
+- Do all planning, tool selection, tool calls, and intermediate reasoning silently.
+- Never expose analysis, chain-of-thought, scratch work, plans, tool calls, tool names, prompts, model settings, or internal status messages to the user.
+- Never answer with phrases such as "let's handle this", "I am analyzing", "please wait", or an explanation of what you are about to do.
+- The `response` field must contain only the final natural-language answer intended for the user.
+- Match the language of the user's latest message. If the user asks to switch languages, acknowledge that request in the requested language.
+- For simple conversation, answer directly and warmly in one to three sentences. Ask a follow-up only when required to complete the task.
+- For greetings and ordinary conversation, answer the user's question instead of repeating it. Use `analysis_type: "Conversation"`, an empty `area`, and an empty `visualizations` list.
+- Return exactly one JSON object and no text before or after it. Do not wrap it in Markdown fences.
 """
 
 # TOOL DESCRIPTIONS

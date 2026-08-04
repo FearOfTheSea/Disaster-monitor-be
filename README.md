@@ -32,6 +32,21 @@ keep the existing LocationIQ provider for higher-volume or production use by
 setting `GEOCODER_PROVIDER=locationiq` and providing `IQ_LOCATION_API_KEY`.
 Keep OpenStreetMap attribution visible in the frontend.
 
+## AI-agent tests
+
+The AI-agent test scope covers chat sessions, multilingual requests, geocoded
+flood analysis, structured satellite-analysis responses, API validation, and
+removal of leaked model reasoning. Tests are deterministic and do not require
+Ollama or external data services:
+
+```powershell
+uv sync --frozen
+uv run pytest -q
+```
+
+See [docs/AI_AGENT_TESTING.md](docs/AI_AGENT_TESTING.md) for the test matrix,
+API end-to-end setup, and live smoke-check guidance.
+
 The minimal local stack does not require PostgreSQL, Earth Engine, OpenWeather,
 LocationIQ credentials, or Planetary Computer credentials. Chat sessions use SQLite under
 `SESSION_DIR` (default: `session`). Configure those integrations only when you
