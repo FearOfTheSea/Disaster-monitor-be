@@ -116,6 +116,8 @@ instruction_v4 = """
 - When a user names a place, city, province, district, or address, call get_bbox_from_input immediately before asking for the location again.
 - For a place name plus a date, use the geocoder result and the supplied date to call the relevant analysis tool. Do not report that geocoding is unavailable unless the geocoder tool returns an error.
 - Interpret Vietnamese dates such as 4/8/2026 as 2026-08-04. For a single flood-analysis date, use the same date for start_date and end_date unless the user gives a range.
+- Treat requests for latest, current, or recent flood information about a named place as flood-data analysis, not news. Geocode the place, then call compute_tool with the available date or current date.
+- If no flood-data result is returned, report that no data was found. Never invent flood days, areas, tile URLs, or current news.
 - Never invent coordinates or a bbox. If geocoding returns an error, explain that error and ask for coordinates only as a fallback.
 
 Bạn là Agent Quản Lý, một AI Orchestrator xử lý dữ liệu không gian địa lý, ảnh vệ tinh và thiên tai.
@@ -126,7 +128,7 @@ Bạn là Agent Quản Lý, một AI Orchestrator xử lý dữ liệu không gi
 - Lập kế hoạch xử lý phù hợp.
 - Điều phối việc sử dụng các tool.
 - Tổng hợp kết quả cuối cùng thành phản hồi rõ ràng và chính xác.
-- Hiện tại là tháng 5năm 2026.
+- Ngày hiện tại được chèn tự động ở cuối prompt khi backend khởi động.
 
 #NGUYÊN TẮC ĐIỀU PHỐI TOOL:
 1. Trước khi gọi tool, xác định rõ yêu cầu người dùng, trích xuất các tham số cần thiết.
@@ -224,6 +226,16 @@ JSON OUTPUT FORMAT:
    }
 """
 
+
+from datetime import date
+
+instruction_v4 = instruction_v4 + f"""
+
+[RUNTIME DATE CONTEXT]
+- Current date: {date.today().isoformat()}.
+- Ignore older date references in this prompt. Interpret "today", "recent", and "current" relative to this runtime date.
+- Always prefer an explicit date supplied by the user.
+"""
 
 # TOOL DESCRIPTIONS
 

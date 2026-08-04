@@ -3,7 +3,7 @@ from typing import List
 from agents import Agent, OpenAIChatCompletionsModel
 from pydantic import BaseModel, Field
 from typing import Optional
-from app.core.llm_clients import get_agent_model
+from app.core.llm_clients import get_agent_model, get_agent_model_settings
 # from app.agents.image_analyst_agent import analyze_image_tool
 from app.agents.tools.image_analyst_tool import analyze_image
 from app.agents.tools.geo_coding_tool import get_bbox_from_input
@@ -13,6 +13,7 @@ from app.agents.vision_agent import vision_agent
 from app.agents.prompts.management_prompt import instruction_v4, vision_tool_description_v2, compute_tool_description_v2
 
 agent_model = get_agent_model()
+agent_model_settings = get_agent_model_settings()
 
 # tool1 = analyze_image_tool
 # tool2 = analyze_image
@@ -38,4 +39,4 @@ class ManagementResponse(BaseModel):
     response: str = Field(description="Kết quả phân tích tổng hợp")
     visualizations: Optional[List[VisualizationItem]] = Field(default=None, description="Danh sách hình ảnh hoặc lớp bản đồ trực quan")
 
-management_agent = Agent(name="Management Agent", model=agent_model, instructions=instruction_v4, tools = [tool1, tool2, tool3, tool4])
+management_agent = Agent(name="Management Agent", model=agent_model, model_settings=agent_model_settings, instructions=instruction_v4, tools = [tool1, tool2, tool3, tool4])

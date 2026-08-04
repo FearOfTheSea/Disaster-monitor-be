@@ -1,9 +1,10 @@
 from agents import Agent
-from app.core.llm_clients import get_agent_model
+from app.core.llm_clients import get_agent_model, get_agent_model_settings
 from app.agents.tools.analyze_two_image_rgb import analyze_image_comparison
 from app.agents.tools.image_analyst_tool import analyze_image
 
 agent_model = get_agent_model()
+agent_model_settings = get_agent_model_settings()
 
 # tool1 = search_two_satellite_rgb_image_and_get_tilejson
 tool2 = analyze_image_comparison
@@ -25,5 +26,5 @@ QUY TẮC HOẠT ĐỘNG:
 6. Sau khi gọi tool và nhận được kết quả, bạn phải trả về kết quả đó về dạng json một cách chính xác, không được thêm bất kỳ văn bản giải thích nào khác ngoài kết quả trả về từ tool.
 7. Luôn đảm bảo rằng kết quả trả về là chính xác và dựa trên dữ liệu thực tế từ tool, không được tự ý suy diễn hoặc bịa đặt thông tin.
 """
-vision_agent = Agent(name="Vision Agent", model=agent_model, instructions=instruction, tools = [tool2, tool3])
+vision_agent = Agent(name="Vision Agent", model=agent_model, model_settings=agent_model_settings, instructions=instruction, tools = [tool2, tool3])
 

@@ -1,6 +1,6 @@
 from typing import Optional
 from openai import AsyncOpenAI
-from agents import OpenAIChatCompletionsModel
+from agents import ModelSettings, OpenAIChatCompletionsModel
 from app.core.config import settings
 
 _gemini_client: Optional[AsyncOpenAI] = None
@@ -60,3 +60,19 @@ def get_agent_model() -> OpenAIChatCompletionsModel:
     if provider == "gemini":
         return get_gemini_model(model_name or settings.GEMINI_MODEL)
     raise ValueError(f"Unsupported LLM_PROVIDER: {settings.LLM_PROVIDER}")
+
+
+def get_agent_model_settings() -> ModelSettings:
+    """Return stable defaults for the configured agent provider.
+
+    Ollama's small local models are more reliable when they emit one tool call
+    at a time without a separate thinking trace. The extra body field is only
+    sent to Ollama; hosted providers keep their normal defaults.
+    """
+
+    provider = settings.LLM_PROVIDER.lower()
+    return ModelSettings(
+        temperature=0,
+        parallel_tool_calls=False,
+        extra_body={"think": False} if provider == "ollama" else None,
+    )
